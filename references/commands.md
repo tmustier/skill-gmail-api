@@ -5,8 +5,8 @@ Run from skill directory: `scripts/gmail.py COMMAND [OPTIONS]`
 ## Reading
 
 ```bash
-read --limit N [--query Q] [--full]     # List emails (--full for body)
-get --id MSG_ID                          # Get single message with body
+read --limit N [--query Q] [--full]     # List emails (--full for body + attachments)
+get --id MSG_ID                          # Get single message with body + attachments
 get-thread --id THREAD_ID [--full]       # Get all messages in thread
 ```
 
@@ -24,7 +24,8 @@ get-thread --id THREAD_ID [--full]       # Get all messages in thread
 ```bash
 draft --to X --subject Y --body Z        # New draft
 draft --reply-to MSG_ID --body Z         # Reply draft (auto-fills to/subject)
-draft --to X --subject Y --body Z --cc A --bcc B --html
+draft --to X --subject Y --body Z --attach /path/to/file.pdf
+draft --to X --subject Y --body Z --attach file1.pdf --attach file2.docx
 list-drafts                              # List all drafts
 delete-draft --draft-id ID               # Delete draft
 ```
@@ -34,7 +35,18 @@ delete-draft --draft-id ID               # Delete draft
 ```bash
 send --draft-id ID                       # Send existing draft
 send --to X --subject Y --body Z         # Send directly
-send --to X --subject Y --body Z --cc A --html
+send --to X --subject Y --body Z --attach /path/to/file.pdf
+send --to X --subject Y --body Z --html  # Send HTML email
+```
+
+## Attachments
+
+```bash
+# Attachments are shown in message output when using --full or get command
+# Output includes: filename, mimeType, size, attachmentId
+
+download-attachment --message-id MSG_ID --attachment-id ATT_ID
+download-attachment --message-id MSG_ID --attachment-id ATT_ID -o /path/to/save.pdf
 ```
 
 ## Message Management
@@ -67,6 +79,36 @@ archive-thread --id THREAD_ID            # Archive whole thread
 trash-thread --id THREAD_ID              # Trash whole thread
 ```
 
+## Filters
+
+```bash
+list-filters                             # List all filters
+get-filter --id FILTER_ID                # Get filter details
+delete-filter --id FILTER_ID             # Delete filter
+
+# Create filter with criteria and actions
+create-filter --from "newsletter@x.com" --archive
+create-filter --from "boss@company.com" --star --add-label IMPORTANT
+create-filter --subject "[URGENT]" --add-label Label_123 --mark-read
+create-filter --has-attachment --add-label Label_Attachments
+create-filter --query "unsubscribe" --archive --mark-read
+```
+
+### Filter Criteria Options
+- `--from ADDRESS` - Match sender
+- `--to ADDRESS` - Match recipient
+- `--subject TEXT` - Match subject
+- `--query QUERY` - Gmail search query
+- `--has-attachment` - Has attachments
+
+### Filter Action Options
+- `--add-label LABEL_ID` - Add label (can repeat)
+- `--remove-label LABEL_ID` - Remove label (can repeat)
+- `--archive` - Remove from INBOX
+- `--mark-read` - Mark as read
+- `--star` - Star message
+- `--forward ADDRESS` - Forward to address
+
 ## Batch Operations
 
 ```bash
@@ -80,4 +122,16 @@ batch-mark-read --query "from:notifications@" --limit 100
 All commands output JSON:
 ```json
 {"status": "sent", "message_id": "...", "thread_id": "..."}
+```
+
+Messages with `--full` include attachments:
+```json
+{
+  "id": "...",
+  "subject": "...",
+  "body": "...",
+  "attachments": [
+    {"filename": "doc.pdf", "mimeType": "application/pdf", "size": 12345, "attachmentId": "..."}
+  ]
+}
 ```

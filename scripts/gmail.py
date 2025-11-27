@@ -3,14 +3,64 @@
 
 import base64
 import json
+import mimetypes
+import os
 import sys
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+from pathlib import Path
 from typing import Optional
 
 import click
 
 from auth import get_gmail_service
+
+
+def attach_file(msg: MIMEMultipart, file_path: str) -> None:
+    """Attach a file to the message."""
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Attachment not found: {file_path}")
+    
+    mime_type, _ = mimetypes.guess_type(str(path))
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+    
+    main_type, sub_type = mime_type.split("/", 1)
+    
+    with open(path, "rb") as f:
+        part = MIMEBase(main_type, sub_type)
+        part.set_payload(f.read())
+    
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=path.name)
+    msg.attach(part)
+
+
+def get_attachments_info(payload: dict) -> list:
+    """Extract attachment info from message payload."""
+    attachments = []
+    
+    def process_parts(parts):
+        for part in parts:
+            filename = part.get("filename")
+            if filename:
+                body = part.get("body", {})
+                attachments.append({
+                    "filename": filename,
+                    "mimeType": part.get("mimeType", ""),
+                    "size": body.get("size", 0),
+                    "attachmentId": body.get("attachmentId", ""),
+                })
+            if "parts" in part:
+                process_parts(part["parts"])
+    
+    if "parts" in payload:
+        process_parts(payload["parts"])
+    
+    return attachments
 
 
 def encode_message(message: MIMEText | MIMEMultipart) -> str:
@@ -60,8 +110,10 @@ def format_message_summary(msg: dict) -> dict:
 def format_message_full(msg: dict) -> dict:
     """Format message with full body."""
     summary = format_message_summary(msg)
-    summary["body"] = decode_body(msg.get("payload", {}))
+    payload = msg.get("payload", {})
+    summary["body"] = decode_body(payload)
     summary["labelIds"] = msg.get("labelIds", [])
+    summary["attachments"] = get_attachments_info(payload)
     return summary
 
 
@@ -130,12 +182,15 @@ def get(msg_id: str):
 @click.option("--body", required=True, help="Email body text")
 @click.option("--html", is_flag=True, help="Treat body as HTML")
 @click.option("--reply-to", "reply_to", help="Message ID to reply to")
+@click.option("--attach", "attachments", multiple=True, help="File path to attach (can use multiple times)")
 def draft(to_addr: Optional[str], cc: Optional[str], bcc: Optional[str], 
-          subject: Optional[str], body: str, html: bool, reply_to: Optional[str]):
+          subject: Optional[str], body: str, html: bool, reply_to: Optional[str],
+          attachments: tuple):
     """Create a draft email."""
     service = get_gmail_service()
     
     thread_id = None
+    orig_headers = []
     
     if reply_to:
         original = service.users().messages().get(
@@ -161,9 +216,15 @@ def draft(to_addr: Optional[str], cc: Optional[str], bcc: Optional[str],
         click.echo("Error: --subject is required (unless using --reply-to)", err=True)
         sys.exit(1)
     
-    if html:
-        msg = MIMEMultipart("alternative")
-        msg.attach(MIMEText(body, "html"))
+    # Use multipart if attachments or HTML
+    if attachments or html:
+        msg = MIMEMultipart()
+        if html:
+            msg.attach(MIMEText(body, "html"))
+        else:
+            msg.attach(MIMEText(body, "plain"))
+        for file_path in attachments:
+            attach_file(msg, file_path)
     else:
         msg = MIMEText(body)
     
@@ -201,8 +262,9 @@ def draft(to_addr: Optional[str], cc: Optional[str], bcc: Optional[str],
 @click.option("--subject", help="Email subject (for direct send)")
 @click.option("--body", help="Email body (for direct send)")
 @click.option("--html", is_flag=True, help="Treat body as HTML")
+@click.option("--attach", "attachments", multiple=True, help="File path to attach (can use multiple times)")
 def send(draft_id: Optional[str], to_addr: Optional[str], cc: Optional[str],
-         subject: Optional[str], body: Optional[str], html: bool):
+         subject: Optional[str], body: Optional[str], html: bool, attachments: tuple):
     """Send an email (from draft or directly)."""
     service = get_gmail_service()
     
@@ -220,9 +282,14 @@ def send(draft_id: Optional[str], to_addr: Optional[str], cc: Optional[str],
         }, indent=2))
     
     elif to_addr and subject and body:
-        if html:
-            msg = MIMEMultipart("alternative")
-            msg.attach(MIMEText(body, "html"))
+        if attachments or html:
+            msg = MIMEMultipart()
+            if html:
+                msg.attach(MIMEText(body, "html"))
+            else:
+                msg.attach(MIMEText(body, "plain"))
+            for file_path in attachments:
+                attach_file(msg, file_path)
         else:
             msg = MIMEText(body)
         
@@ -522,6 +589,161 @@ def batch_mark_read(query: str, limit: int):
         ).execute()
     
     click.echo(json.dumps({"status": "marked_read", "count": len(messages)}))
+
+
+# === Attachments ===
+
+@cli.command()
+@click.option("--message-id", required=True, help="Message ID containing the attachment")
+@click.option("--attachment-id", required=True, help="Attachment ID to download")
+@click.option("--output", "-o", help="Output file path (default: original filename in current dir)")
+def download_attachment(message_id: str, attachment_id: str, output: Optional[str]):
+    """Download an attachment from a message."""
+    service = get_gmail_service()
+    
+    # Get attachment data
+    attachment = service.users().messages().attachments().get(
+        userId="me", messageId=message_id, id=attachment_id
+    ).execute()
+    
+    data = base64.urlsafe_b64decode(attachment["data"])
+    
+    # Determine output path
+    if not output:
+        # Get original filename from message
+        msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
+        attachments = get_attachments_info(msg.get("payload", {}))
+        filename = "attachment"
+        for att in attachments:
+            if att["attachmentId"] == attachment_id:
+                filename = att["filename"]
+                break
+        output = filename
+    
+    # Write file
+    output_path = Path(output)
+    output_path.write_bytes(data)
+    
+    click.echo(json.dumps({
+        "status": "downloaded",
+        "path": str(output_path.absolute()),
+        "size": len(data),
+    }, indent=2))
+
+
+# === Filters ===
+
+@cli.command()
+def list_filters():
+    """List all Gmail filters."""
+    service = get_gmail_service()
+    results = service.users().settings().filters().list(userId="me").execute()
+    filters = results.get("filter", [])
+    
+    output = []
+    for f in filters:
+        output.append({
+            "id": f["id"],
+            "criteria": f.get("criteria", {}),
+            "action": f.get("action", {}),
+        })
+    
+    click.echo(json.dumps({"filters": output, "count": len(output)}, indent=2))
+
+
+@cli.command()
+@click.option("--id", "filter_id", required=True, help="Filter ID")
+def get_filter(filter_id: str):
+    """Get details of a specific filter."""
+    service = get_gmail_service()
+    result = service.users().settings().filters().get(userId="me", id=filter_id).execute()
+    click.echo(json.dumps({
+        "id": result["id"],
+        "criteria": result.get("criteria", {}),
+        "action": result.get("action", {}),
+    }, indent=2))
+
+
+@cli.command()
+@click.option("--from", "from_addr", help="Filter emails from this address")
+@click.option("--to", "to_addr", help="Filter emails to this address")
+@click.option("--subject", help="Filter emails with this subject")
+@click.option("--query", help="Filter using Gmail search query")
+@click.option("--has-attachment", is_flag=True, help="Filter emails with attachments")
+@click.option("--add-label", multiple=True, help="Label ID to add to matching emails")
+@click.option("--remove-label", multiple=True, help="Label ID to remove from matching emails")
+@click.option("--archive", is_flag=True, help="Archive matching emails (remove from INBOX)")
+@click.option("--mark-read", is_flag=True, help="Mark matching emails as read")
+@click.option("--star", is_flag=True, help="Star matching emails")
+@click.option("--forward", help="Forward matching emails to this address")
+def create_filter(from_addr: Optional[str], to_addr: Optional[str], subject: Optional[str],
+                  query: Optional[str], has_attachment: bool, add_label: tuple, 
+                  remove_label: tuple, archive: bool, mark_read: bool, star: bool,
+                  forward: Optional[str]):
+    """Create a new Gmail filter."""
+    service = get_gmail_service()
+    
+    # Build criteria
+    criteria = {}
+    if from_addr:
+        criteria["from"] = from_addr
+    if to_addr:
+        criteria["to"] = to_addr
+    if subject:
+        criteria["subject"] = subject
+    if query:
+        criteria["query"] = query
+    if has_attachment:
+        criteria["hasAttachment"] = True
+    
+    if not criteria:
+        click.echo("Error: at least one filter criteria is required", err=True)
+        sys.exit(1)
+    
+    # Build action
+    action = {}
+    add_labels = list(add_label)
+    remove_labels = list(remove_label)
+    
+    if archive:
+        remove_labels.append("INBOX")
+    if mark_read:
+        remove_labels.append("UNREAD")
+    if star:
+        add_labels.append("STARRED")
+    if forward:
+        action["forward"] = forward
+    
+    if add_labels:
+        action["addLabelIds"] = add_labels
+    if remove_labels:
+        action["removeLabelIds"] = remove_labels
+    
+    if not action:
+        click.echo("Error: at least one filter action is required", err=True)
+        sys.exit(1)
+    
+    # Create filter
+    result = service.users().settings().filters().create(
+        userId="me",
+        body={"criteria": criteria, "action": action}
+    ).execute()
+    
+    click.echo(json.dumps({
+        "status": "created",
+        "id": result["id"],
+        "criteria": result.get("criteria", {}),
+        "action": result.get("action", {}),
+    }, indent=2))
+
+
+@cli.command()
+@click.option("--id", "filter_id", required=True, help="Filter ID to delete")
+def delete_filter(filter_id: str):
+    """Delete a Gmail filter."""
+    service = get_gmail_service()
+    service.users().settings().filters().delete(userId="me", id=filter_id).execute()
+    click.echo(json.dumps({"status": "deleted", "id": filter_id}))
 
 
 if __name__ == "__main__":
