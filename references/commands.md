@@ -55,12 +55,14 @@ download-attachment --message-id MSG_ID --attachment-id ATT_ID -o /path/to/save.
 archive --id MSG_ID                      # Remove from inbox
 trash --id MSG_ID                        # Move to trash
 untrash --id MSG_ID                      # Restore from trash
-delete --id MSG_ID                       # Permanent delete (!)
+delete --id MSG_ID                       # Permanent delete (requires full scope*)
 mark-read --id MSG_ID
 mark-unread --id MSG_ID
 star --id MSG_ID
 unstar --id MSG_ID
 ```
+
+*`delete` requires the full `https://mail.google.com/` scope. Uncomment it in `auth.py` and re-authenticate. Use `trash` for most cases.
 
 ## Labels
 

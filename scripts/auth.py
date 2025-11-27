@@ -16,6 +16,10 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.settings.basic",
+    # Uncomment for permanent delete (full mailbox access):
+    # "https://mail.google.com/",
 ]
 
 

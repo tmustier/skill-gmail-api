@@ -389,10 +389,20 @@ def untrash(msg_id: str):
 @cli.command()
 @click.option("--id", "msg_id", required=True, help="Message ID")
 def delete(msg_id: str):
-    """Permanently delete a message (cannot be undone)."""
+    """Permanently delete a message (cannot be undone). Requires full scope."""
+    from googleapiclient.errors import HttpError
     service = get_gmail_service()
-    service.users().messages().delete(userId="me", id=msg_id).execute()
-    click.echo(json.dumps({"status": "deleted", "id": msg_id}))
+    try:
+        service.users().messages().delete(userId="me", id=msg_id).execute()
+        click.echo(json.dumps({"status": "deleted", "id": msg_id}))
+    except HttpError as e:
+        if e.resp.status == 403:
+            click.echo(json.dumps({
+                "error": "Permanent delete requires full mailbox scope",
+                "hint": "Uncomment 'https://mail.google.com/' in auth.py and re-authenticate, or use 'trash' instead"
+            }), err=True)
+            sys.exit(1)
+        raise
 
 
 @cli.command()
