@@ -1,5 +1,13 @@
+# Virtual environment
 .venv/
+
+# Python cache
 __pycache__/
 *.pyc
+
+# User credentials (never commit)
 token.json
 credentials.json
+
+# OS files
+.DS_Store

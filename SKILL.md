@@ -9,39 +9,37 @@ allowed-tools:
 
 # Gmail API Skill
 
-CLI at `~/skill-gmail-api/.venv/bin/python ~/skill-gmail-api/gmail.py`
-
 ## Quick Reference
 
 ```bash
 # Read
-gmail.py read --limit 10
-gmail.py read --query "is:unread" --full
-gmail.py get --id MSG_ID
+scripts/gmail.py read --limit 10
+scripts/gmail.py read --query "is:unread" --full
+scripts/gmail.py get --id MSG_ID
 
 # Draft & Send  
-gmail.py draft --to "x@y.com" --subject "Hi" --body "Hello"
-gmail.py draft --reply-to MSG_ID --body "Thanks!"
-gmail.py send --draft-id DRAFT_ID
-gmail.py send --to "x@y.com" --subject "Hi" --body "Hello"
+scripts/gmail.py draft --to "x@y.com" --subject "Hi" --body "Hello"
+scripts/gmail.py draft --reply-to MSG_ID --body "Thanks!"
+scripts/gmail.py send --draft-id DRAFT_ID
+scripts/gmail.py send --to "x@y.com" --subject "Hi" --body "Hello"
 
 # Manage
-gmail.py archive --id MSG_ID
-gmail.py trash --id MSG_ID
-gmail.py star --id MSG_ID
-gmail.py mark-read --id MSG_ID
+scripts/gmail.py archive --id MSG_ID
+scripts/gmail.py trash --id MSG_ID
+scripts/gmail.py star --id MSG_ID
+scripts/gmail.py mark-read --id MSG_ID
 
 # Batch
-gmail.py batch-archive --query "from:newsletters@"
-gmail.py batch-mark-read --query "is:unread from:notifications@"
+scripts/gmail.py batch-archive --query "from:newsletters@"
+scripts/gmail.py batch-mark-read --query "is:unread from:notifications@"
 ```
 
-Run `gmail.py --help` or `gmail.py COMMAND --help` for options.
+Run `scripts/gmail.py --help` or `scripts/gmail.py COMMAND --help` for options.
 
 **Full command reference**: See [references/commands.md](references/commands.md)
 
 ## Setup
 
 1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Add client_id and client_secret to `credentials.json`
+2. Copy `credentials.example.json` to `credentials.json` and add your client_id/secret
 3. First run opens browser for OAuth consent

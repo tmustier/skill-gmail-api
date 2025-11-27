@@ -8,7 +8,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-SKILL_DIR = Path(__file__).parent
+SKILL_DIR = Path(__file__).parent.parent  # skill-gmail-api/
 CREDENTIALS_FILE = SKILL_DIR / "credentials.json"
 TOKEN_FILE = SKILL_DIR / "token.json"
 

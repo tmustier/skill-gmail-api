@@ -1,6 +1,6 @@
 # Gmail CLI Command Reference
 
-Base: `~/skill-gmail-api/.venv/bin/python ~/skill-gmail-api/gmail.py`
+Run from skill directory: `scripts/gmail.py COMMAND [OPTIONS]`
 
 ## Reading
 
