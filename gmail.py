@@ -287,5 +287,242 @@ def delete_draft(draft_id: str):
     click.echo(json.dumps({"status": "deleted", "draft_id": draft_id}))
 
 
+# === Message Management ===
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def archive(msg_id: str):
+    """Archive a message (remove from INBOX)."""
+    service = get_gmail_service()
+    service.users().messages().modify(
+        userId="me", id=msg_id,
+        body={"removeLabelIds": ["INBOX"]}
+    ).execute()
+    click.echo(json.dumps({"status": "archived", "id": msg_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def trash(msg_id: str):
+    """Move a message to trash."""
+    service = get_gmail_service()
+    service.users().messages().trash(userId="me", id=msg_id).execute()
+    click.echo(json.dumps({"status": "trashed", "id": msg_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def untrash(msg_id: str):
+    """Remove a message from trash."""
+    service = get_gmail_service()
+    service.users().messages().untrash(userId="me", id=msg_id).execute()
+    click.echo(json.dumps({"status": "untrashed", "id": msg_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def delete(msg_id: str):
+    """Permanently delete a message (cannot be undone)."""
+    service = get_gmail_service()
+    service.users().messages().delete(userId="me", id=msg_id).execute()
+    click.echo(json.dumps({"status": "deleted", "id": msg_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def mark_read(msg_id: str):
+    """Mark a message as read."""
+    service = get_gmail_service()
+    service.users().messages().modify(
+        userId="me", id=msg_id,
+        body={"removeLabelIds": ["UNREAD"]}
+    ).execute()
+    click.echo(json.dumps({"status": "marked_read", "id": msg_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def mark_unread(msg_id: str):
+    """Mark a message as unread."""
+    service = get_gmail_service()
+    service.users().messages().modify(
+        userId="me", id=msg_id,
+        body={"addLabelIds": ["UNREAD"]}
+    ).execute()
+    click.echo(json.dumps({"status": "marked_unread", "id": msg_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def star(msg_id: str):
+    """Star a message."""
+    service = get_gmail_service()
+    service.users().messages().modify(
+        userId="me", id=msg_id,
+        body={"addLabelIds": ["STARRED"]}
+    ).execute()
+    click.echo(json.dumps({"status": "starred", "id": msg_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+def unstar(msg_id: str):
+    """Remove star from a message."""
+    service = get_gmail_service()
+    service.users().messages().modify(
+        userId="me", id=msg_id,
+        body={"removeLabelIds": ["STARRED"]}
+    ).execute()
+    click.echo(json.dumps({"status": "unstarred", "id": msg_id}))
+
+
+# === Labels ===
+
+@cli.command()
+def list_labels():
+    """List all labels."""
+    service = get_gmail_service()
+    results = service.users().labels().list(userId="me").execute()
+    labels = results.get("labels", [])
+    output = [{"id": l["id"], "name": l["name"], "type": l.get("type", "")} for l in labels]
+    click.echo(json.dumps({"labels": output, "count": len(output)}, indent=2))
+
+
+@cli.command()
+@click.option("--name", required=True, help="Label name to create")
+def create_label(name: str):
+    """Create a new label."""
+    service = get_gmail_service()
+    result = service.users().labels().create(
+        userId="me",
+        body={"name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"}
+    ).execute()
+    click.echo(json.dumps({"status": "created", "id": result["id"], "name": result["name"]}))
+
+
+@cli.command()
+@click.option("--id", "label_id", required=True, help="Label ID to delete")
+def delete_label(label_id: str):
+    """Delete a label."""
+    service = get_gmail_service()
+    service.users().labels().delete(userId="me", id=label_id).execute()
+    click.echo(json.dumps({"status": "deleted", "id": label_id}))
+
+
+@cli.command()
+@click.option("--id", "msg_id", required=True, help="Message ID")
+@click.option("--add", multiple=True, help="Label IDs to add")
+@click.option("--remove", multiple=True, help="Label IDs to remove")
+def modify_labels(msg_id: str, add: tuple, remove: tuple):
+    """Add or remove labels from a message."""
+    service = get_gmail_service()
+    body = {}
+    if add:
+        body["addLabelIds"] = list(add)
+    if remove:
+        body["removeLabelIds"] = list(remove)
+    
+    result = service.users().messages().modify(userId="me", id=msg_id, body=body).execute()
+    click.echo(json.dumps({"status": "modified", "id": msg_id, "labelIds": result.get("labelIds", [])}))
+
+
+# === Threads ===
+
+@cli.command()
+@click.option("--id", "thread_id", required=True, help="Thread ID")
+@click.option("--full", is_flag=True, help="Include full message bodies")
+def get_thread(thread_id: str, full: bool):
+    """Get all messages in a thread."""
+    service = get_gmail_service()
+    thread = service.users().threads().get(
+        userId="me", id=thread_id,
+        format="full" if full else "metadata",
+        metadataHeaders=["From", "To", "Subject", "Date"] if not full else None,
+    ).execute()
+    
+    messages = []
+    for msg in thread.get("messages", []):
+        if full:
+            messages.append(format_message_full(msg))
+        else:
+            messages.append(format_message_summary(msg))
+    
+    click.echo(json.dumps({"thread_id": thread_id, "messages": messages, "count": len(messages)}, indent=2))
+
+
+@cli.command()
+@click.option("--id", "thread_id", required=True, help="Thread ID")
+def archive_thread(thread_id: str):
+    """Archive all messages in a thread."""
+    service = get_gmail_service()
+    service.users().threads().modify(
+        userId="me", id=thread_id,
+        body={"removeLabelIds": ["INBOX"]}
+    ).execute()
+    click.echo(json.dumps({"status": "archived", "thread_id": thread_id}))
+
+
+@cli.command()
+@click.option("--id", "thread_id", required=True, help="Thread ID")
+def trash_thread(thread_id: str):
+    """Move all messages in a thread to trash."""
+    service = get_gmail_service()
+    service.users().threads().trash(userId="me", id=thread_id).execute()
+    click.echo(json.dumps({"status": "trashed", "thread_id": thread_id}))
+
+
+# === Batch Operations ===
+
+@cli.command()
+@click.option("--query", "-q", required=True, help="Gmail search query")
+@click.option("--limit", "-n", default=50, help="Max messages to process")
+def batch_archive(query: str, limit: int):
+    """Archive all messages matching a query."""
+    service = get_gmail_service()
+    results = service.users().messages().list(userId="me", q=query, maxResults=limit).execute()
+    messages = results.get("messages", [])
+    
+    for msg in messages:
+        service.users().messages().modify(
+            userId="me", id=msg["id"],
+            body={"removeLabelIds": ["INBOX"]}
+        ).execute()
+    
+    click.echo(json.dumps({"status": "archived", "count": len(messages)}))
+
+
+@cli.command()
+@click.option("--query", "-q", required=True, help="Gmail search query")
+@click.option("--limit", "-n", default=50, help="Max messages to process")
+def batch_trash(query: str, limit: int):
+    """Trash all messages matching a query."""
+    service = get_gmail_service()
+    results = service.users().messages().list(userId="me", q=query, maxResults=limit).execute()
+    messages = results.get("messages", [])
+    
+    for msg in messages:
+        service.users().messages().trash(userId="me", id=msg["id"]).execute()
+    
+    click.echo(json.dumps({"status": "trashed", "count": len(messages)}))
+
+
+@cli.command()
+@click.option("--query", "-q", required=True, help="Gmail search query")
+@click.option("--limit", "-n", default=50, help="Max messages to process")
+def batch_mark_read(query: str, limit: int):
+    """Mark all messages matching a query as read."""
+    service = get_gmail_service()
+    results = service.users().messages().list(userId="me", q=query, maxResults=limit).execute()
+    messages = results.get("messages", [])
+    
+    for msg in messages:
+        service.users().messages().modify(
+            userId="me", id=msg["id"],
+            body={"removeLabelIds": ["UNREAD"]}
+        ).execute()
+    
+    click.echo(json.dumps({"status": "marked_read", "count": len(messages)}))
+
+
 if __name__ == "__main__":
     cli()
