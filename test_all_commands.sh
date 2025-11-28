@@ -4,7 +4,9 @@
 
 set -e
 
-cd /Users/thomasmustier/skill-gmail-api
+# Use script's directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 GMAIL="./scripts/gmail.py"
 VENV_PYTHON=".venv/bin/python"
 
